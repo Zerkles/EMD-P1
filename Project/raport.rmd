@@ -1,0 +1,152 @@
+---
+title: "Projekt R - Raport"
+author: "Wojciech Lulek"
+output:
+html_document:
+toc: yes
+runtime: shiny
+---
+
+Data utworzenia: `r format(Sys.time(), '%d %B, %Y')`
+
+Kod wyliczający wykorzystane biblioteki.
+```{r}
+install.packages("ggplot2", repos = "http://cran.us.r-project.org")
+install.packages("ggcorrplot", repos = "http://cran.us.r-project.org")
+install.packages("shiny", repos = "http://cran.us.r-project.org")
+install.packages("caret", repos = "http://cran.us.r-project.org")
+install.packages("elasticnet", repos = "http://cran.us.r-project.org")
+install.packages("Metrics", repos = "http://cran.us.r-project.org")
+
+library(Metrics)
+library(elasticnet)
+library(ggplot2)
+library(ggcorrplot)
+library(shiny)
+library(caret)
+library(dplyr)
+```
+
+Kod zapewniający powtarzalność wyników przy każdym uruchomieniu raportu na tych samych danych, oraz kod wczytujący dane.
+```{r}
+df_raw <- read.table("https://chmura.student.put.poznan.pl/s/DGJuelDHo4aeebV/download", header = TRUE, sep = ",", quote = '"')
+print(head(df_raw))
+```
+
+Kod przetwarzający brakujące dane oraz podsumowujący rozmiar zbioru i podstawowe statystyki.
+```{r}
+print(summary(df_raw))
+df <- na.omit(df_raw)
+
+print("-------------------------------------------------")
+print(summary(df))
+```
+
+Szczegółową analizę wartości atrybutów (np. poprzez prezentację rozkładów wartości).
+```{r}
+numeric_cols <- names(df)
+numeric_cols <- numeric_cols[4:length(numeric_cols)]
+
+for (col in numeric_cols) {
+  print(paste("Plotting: ", col))
+  print(ggplot(data = df, aes(x = Year, y = eval(parse(text = col)))) + geom_line(aes(colour = Country)))
+}
+
+developed <- unique(filter(df, Status == "Developed")$Country)
+developing <- unique(filter(df, Status == "Developing")$Country)
+print("Developed countries:")
+print(developed)
+print("Developing countries:")
+print(developing)
+```
+
+Sekcję sprawdzającą korelacje między zmiennymi; sekcja ta powinna zawierać jakąś formę graficznej prezentacji korelacji.
+```{r}
+cor_matrix <- cor(df[numeric_cols])
+ggcorrplot(cor_matrix)
+```
+
+Interaktywny wykres prezentujący średnią długość życia dla poszczególnych krajów w zależności od roku (w wersji html użytkownik).
+```{r eruptions, echo=FALSE}
+u_years <- unique(df["Year"])
+u_country <- unique(df["Country"])
+
+shinyApp(
+  ui = fluidPage(
+    titlePanel("Life expectancy in selected countries"),
+    sidebarLayout(
+      sidebarPanel(
+        selectInput("fromYear", "From year:", choices = u_years, selected = 2000),
+        selectInput("toYear", "To year:", choices = u_years, selected = 2015),
+        selectInput("countries", "Selected countries:", choices = u_country, multiple = TRUE, selected = "Poland"),
+      ),
+
+      mainPanel(plotOutput("LifePlot"))
+    )
+  ),
+
+  server = function(input, output) {
+    df_filter <- reactive({
+      filter(df, Country == c(input$countries), Year >= input$fromYear, Year <= input$toYear)
+    })
+
+    output$LifePlot <- renderPlot({
+      ggplot(data = df_filter(), aes(x = Year, y = eval(parse(text = "Life.expectancy")))) + geom_line(aes(colour = Country))
+    })
+  })
+```
+
+Sekcję próbującą stworzyć regresor przewidujący oczekiwaną długość życia
+(w tej sekcji należy wykorzystać wiedzę z pozostałych punktów oraz wykonać dodatkowe czynności, które mogą poprawić trafność predykcji);
+dobór parametrów modelu oraz oszacowanie jego skuteczności powinny zostać wykonane za pomocą techniki podziału zbioru na dane uczące, walidujące i testowe;
+trafność regresji powinna zostać oszacowana na podstawie miar R2R2 i RMSERMSE.
+```{r}
+options(warn = -1)
+set.seed(21)
+
+inTraining <- createDataPartition(
+  y = df$Life.expectancy,
+  p = .80,
+  list = FALSE)
+
+training <- df[inTraining,]
+testing <- df[-inTraining,]
+
+ctrl <- trainControl(
+  method = "repeatedcv",
+  number = 2,
+  repeats = 5)
+
+lambdaGrid <- expand.grid(lambda = 10^seq(10, -2, length = 100))
+
+fit <- train(Life.expectancy ~ .,
+             data = training,
+             method = "ridge",
+             trControl = ctrl,
+             tuneGrid = lambdaGrid
+)
+
+```
+
+Ewaluacja wyników:
+```{r}
+predictions <- predict(fit, testing)
+rmse <- RMSE(predictions, testing$Life.expectancy)
+r2 <- R2(predictions, testing$Life.expectancy)
+
+print(paste("Root Mean Square Error is :", as.character(rmse)))
+print(paste("Root Square Error is:", as.character(r2)))
+```
+
+Analizę ważności atrybutów najlepszego znalezionego modelu regresji.
+```{r}
+ggplot(varImp(fit))
+```
+
+Analiza ważności atrybutów powinna stanowić próbę odpowiedzi na pytanie: co w największym stopniu wpływa na wydłużenie lub skrócenie długości życia:
+
+Przy analizie powyższego wykresu należy zignorować cechę "Country" z oczywistych względów. Odpowiadając jednak na zadane pytanie, w największym stopniu za średnią długość życia odpowiada czynnik 'Income composition of resources', czyli sumaryczny przychód obywateli danego kraju.
+
+Wnioski:
+
+Z pewnością w projekcie przydałaby się lepsza metoda pierwotnej obróbki danych, jednak ze względu na poważne braki niektórych cech bardzo ciężko było ją przeprowadzić o czym prowadząca została poinformowana. Dodatkowo, zastosowana metoda eliminacji uszkodzonych wierszy - całkowite ich usunięcie w przypadku odnalezienia brakującej wartości - może powodować błędy w działaniu interaktywnego wykresu shiny a także pozostałych elementów projektu.
