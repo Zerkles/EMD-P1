@@ -47,15 +47,46 @@ Szczegółową analizę wartości atrybutów (np. poprzez prezentację rozkład�
 numeric_cols <- names(df)
 numeric_cols <- numeric_cols[4:length(numeric_cols)]
 
-for (col in numeric_cols) {
-  print(paste("Plotting: ", col))
-  print(ggplot(data = df, aes(x = Year, y = eval(parse(text = col)))) + geom_line(aes(colour = Country)))
-}
+u_years <- unique(df["Year"])
+u_country <- unique(df["Country"])
+```
 
+```{r,echo=FALSE}
+
+shinyApp(
+  ui = fluidPage(
+    titlePanel("Attribute in selected countries"),
+    sidebarLayout(
+      sidebarPanel(
+        selectInput("attr", "Attribute:", choices = numeric_cols, selected = "GDP"),
+        selectInput("countries", "Selected countries:", choices = u_country, multiple = TRUE, selected = "Poland"),
+      ),
+
+      mainPanel(plotOutput("LifePlot"))
+    )
+  ),
+
+  server = function(input, output) {
+    df_filter <- reactive({
+      filter(df, Country == c(input$countries))
+    })
+
+    output$LifePlot <- renderPlot({
+      ggplot(data = df_filter(), aes(x = Year, y = eval(parse(text = input$attr)))) + geom_line(aes(colour = Country)) + labs(x = "Year", y = input$attr)
+    })
+  })
+```
+
+
+```{r}
 developed <- unique(filter(df, Status == "Developed")$Country)
-developing <- unique(filter(df, Status == "Developing")$Country)
 print("Developed countries:")
 print(developed)
+
+```
+
+```{r}
+developing <- unique(filter(df, Status == "Developing")$Country)
 print("Developing countries:")
 print(developing)
 ```
@@ -68,8 +99,6 @@ ggcorrplot(cor_matrix)
 
 Interaktywny wykres prezentujący średnią długość życia dla poszczególnych krajów w zależności od roku (w wersji html użytkownik).
 ```{r eruptions, echo=FALSE}
-u_years <- unique(df["Year"])
-u_country <- unique(df["Country"])
 
 shinyApp(
   ui = fluidPage(
@@ -91,7 +120,7 @@ shinyApp(
     })
 
     output$LifePlot <- renderPlot({
-      ggplot(data = df_filter(), aes(x = Year, y = eval(parse(text = "Life.expectancy")))) + geom_line(aes(colour = Country))
+      ggplot(data = df_filter(), aes(x = Year, y = eval(parse(text = "Life.expectancy")))) + geom_line(aes(colour = Country)) + labs(x = "Year", y = "Life expectancy")
     })
   })
 ```
